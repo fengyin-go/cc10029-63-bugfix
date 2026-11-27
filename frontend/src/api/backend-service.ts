@@ -1,6 +1,12 @@
 import { request } from './client'
 import { moduleMeta } from '@/data/modules'
-import type { ActionResult, EntryRow, OverviewResult, PageResult } from '@/data/types'
+import type {
+  ActionResult,
+  EntryRow,
+  FeedbackEligibility,
+  OverviewResult,
+  PageResult,
+} from '@/data/types'
 
 export { moduleMeta }
 
@@ -17,11 +23,28 @@ export async function listEntries(
 export async function createEntry(
   key: string,
   values: Record<string, string>,
+  requestKey?: string,
 ): Promise<ActionResult> {
   const response = await request(`/api/${key}`, {
     method: 'POST',
-    body: JSON.stringify({ values }),
+    body: JSON.stringify({ values, request_key: requestKey }),
   })
+  return await response.json()
+}
+
+/**
+ * 核对反馈引用当前是否具备登记/审核改进方案的资格。
+ * 断网重发同一申请时，主任可凭此判断是沿用待补签收资格，
+ * 还是等签收完成后从原申请继续建方案。
+ */
+export async function checkFeedbackEligibility(
+  feedbackRef: string,
+  responsibleTeacher?: string,
+): Promise<FeedbackEligibility> {
+  const params = new URLSearchParams({ feedback_ref: feedbackRef })
+  if (responsibleTeacher) params.set('responsible_teacher', responsibleTeacher)
+  const response = await request(`/api/improve_plan/feedback-eligibility?${params.toString()}`)
+  if (!response.ok) throw new Error('反馈签收资格核对失败')
   return await response.json()
 }
 

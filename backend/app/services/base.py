@@ -59,6 +59,31 @@ class BaseModuleService:
         rows.append(entry)
         return entry, []
 
+    def create_entry_idempotent(
+        self, values: dict[str, Any], request_key: str | None
+    ) -> tuple[dict[str, Any] | None, list[str], bool]:
+        """带请求幂等键的登记。
+
+        返回 (entry, missing, replayed)：
+        - 同一 request_key 重发时直接返回首次受理的原单（replayed=True），
+          不再新建可办事项；
+        - 没有 request_key 时走普通登记（replayed=False）。
+        校验不通过（缺字段/跨模块校验失败）不会写入幂等台账。
+        """
+        if request_key:
+            key = request_key.strip()
+            if key:
+                recorded = store.find_idempotent(key)
+                if recorded is not None and recorded.get("module") == self.MODULE:
+                    entry_id = int(recorded.get("entry_id", 0))
+                    existing = store.find(self.MODULE, entry_id)
+                    if existing is not None:
+                        return existing, [], True
+        entry, missing = self.create_entry(values)
+        if entry is not None and request_key and request_key.strip():
+            store.save_idempotent(request_key.strip(), self.MODULE, entry)
+        return entry, missing, False
+
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(self.MODULE, entry_id)
         if entry is None:

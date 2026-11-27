@@ -85,14 +85,30 @@ def get_entry(module: str, entry_id: int) -> dict[str, Any]:
 @router.post("/{module}", response_model=ActionResult)
 def create_entry(module: str, payload: EntryPayload) -> ActionResult:
     service = require_service(module)
-    entry, missing = service.create_entry(payload.values)
+    try:
+        entry, missing, replayed = service.create_entry_idempotent(
+            payload.values, payload.request_key
+        )
+    except ValueError as exc:
+        # 跨模块校验失败（反馈不存在/未签收/教师不符等）属于业务拒绝，
+        # 返回 ok=False 而不是 500，前端可直接提示且不会产生残留单据
+        return ActionResult(ok=False, message=str(exc))
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if replayed:
+        return ActionResult(
+            ok=True,
+            message=f"{service.ENTITY}已受理（请求重发，沿用原单号 #{entry['id']}，未重复建单）",
+            entry=entry,
+        )
     return ActionResult(ok=True, message=f"{service.ENTITY}已登记", entry=entry)
 
 
 @router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
 def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
+    try:
+        entry, message = service.run_action(entry_id, payload.action.strip())
+    except ValueError as exc:
+        return ActionResult(ok=False, message=str(exc))
     return ActionResult(ok=entry is not None, message=message, entry=entry)

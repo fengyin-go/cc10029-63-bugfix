@@ -77,6 +77,25 @@
           <span>{{ field }}</span>
           <input v-model="createValues[field]" :data-testid="`create-${field}`" required />
         </label>
+        <div v-if="isPlanModule" class="eligibility-bar">
+          <button
+            class="btn ghost"
+            data-testid="check-eligibility"
+            type="button"
+            :disabled="checkingEligibility"
+            @click="checkEligibility"
+          >
+            {{ checkingEligibility ? '核对中…' : '核对反馈签收资格' }}
+          </button>
+          <span
+            v-if="eligibilityMessage"
+            class="eligibility-text"
+            :class="{ 'is-eligible': eligibilityOk }"
+            data-testid="eligibility-message"
+          >
+            {{ eligibilityMessage }}
+          </span>
+        </div>
         <div class="page-actions">
           <button class="btn" type="button" @click="showCreate = false">取消</button>
           <button class="btn primary" data-testid="submit-create" type="submit" :disabled="creating">
@@ -97,6 +116,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  checkFeedbackEligibility,
   createEntry,
   downloadEntries,
   listEntries,
@@ -107,6 +127,7 @@ import type { EntryRow } from '@/data/types'
 
 const props = defineProps<{ moduleKey: string }>()
 const meta = moduleMeta(props.moduleKey)
+const isPlanModule = props.moduleKey === 'improve_plan'
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
@@ -115,6 +136,11 @@ const filterFields = meta.fields.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
 const createValues = ref<Record<string, string>>({})
+// 每次打开登记框生成一个稳定请求键：断网重发同一申请时后端沿用原单号
+const requestKey = ref('')
+const checkingEligibility = ref(false)
+const eligibilityMessage = ref('')
+const eligibilityOk = ref(false)
 const stats = computed(() => [
   { label: meta.metrics[0], value: total.value },
   { label: meta.metrics[1], value: rows.value.filter((row) => row.status === meta.statuses[1]).length },
@@ -147,14 +173,36 @@ async function exportRows() {
 function openCreate() {
   createValues.value = Object.fromEntries(meta.fields.map((field) => [field, '']))
   errorMessage.value = ''
+  eligibilityMessage.value = ''
+  eligibilityOk.value = false
+  // 同一登记会话内保持稳定，重发原请求才能命中后端幂等受理
+  requestKey.value = `${props.moduleKey}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   showCreate.value = true
+}
+
+async function checkEligibility() {
+  checkingEligibility.value = true
+  errorMessage.value = ''
+  try {
+    const result = await checkFeedbackEligibility(
+      createValues.value['关联反馈'] ?? '',
+      createValues.value['负责教师'] || undefined,
+    )
+    eligibilityMessage.value = result.message
+    eligibilityOk.value = result.eligible
+  } catch (error) {
+    eligibilityMessage.value = ''
+    errorMessage.value = error instanceof Error ? error.message : '反馈签收资格核对失败'
+  } finally {
+    checkingEligibility.value = false
+  }
 }
 
 async function submitCreate() {
   creating.value = true
   errorMessage.value = ''
   try {
-    const result = await createEntry(meta.key, createValues.value)
+    const result = await createEntry(meta.key, createValues.value, requestKey.value)
     if (!result.ok) throw new Error(result.message)
     showCreate.value = false
     await reload()

@@ -24,6 +24,7 @@ class ActionResult(BaseModel):
 class EntryPayload(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
     remark: str | None = None
+    request_key: str | None = None
 
 
 class ActionPayload(BaseModel):

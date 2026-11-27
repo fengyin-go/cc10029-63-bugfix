@@ -30,6 +30,18 @@ export type PageResult = {
 export type ActionResult = {
   ok: boolean
   message: string
+  entry?: EntryRow | null
+}
+
+export type FeedbackEligibility = {
+  ok: boolean
+  formal: boolean
+  eligible: boolean
+  feedback_id?: number | null
+  feedback_status?: string | null
+  owner_teacher?: string
+  responsible_teacher?: string | null
+  message: string
 }
 
 export type OverviewResult = {

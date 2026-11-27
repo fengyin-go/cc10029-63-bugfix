@@ -14,6 +14,8 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 请求幂等台账：request_key -> 首次受理结果（模块 + 登记单）
+        self._idempotency: dict[str, dict[str, Any]] = {}
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
@@ -26,6 +28,18 @@ class Store:
             if int(row.get("id", 0)) == entry_id:
                 return row
         return None
+
+    def find_idempotent(self, request_key: str) -> dict[str, Any] | None:
+        """按请求幂等键取回首次受理结果；未受理过返回 None。"""
+        return self._idempotency.get(request_key)
+
+    def save_idempotent(self, request_key: str, module: str, entry: dict[str, Any]) -> None:
+        """登记一次已受理的创建请求，重发同一请求时复用原单号。"""
+        self._idempotency[request_key] = {
+            "module": module,
+            "entry_id": int(entry.get("id", 0)),
+            "entry": entry,
+        }
 
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
